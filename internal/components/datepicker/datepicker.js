@@ -78,12 +78,17 @@
     const calendarId = trigger.id + "-calendar-instance";
     const calendar = document.getElementById(calendarId);
     const hiddenInput = document.getElementById(trigger.id + "-hidden") || 
-                       trigger.parentElement?.querySelector("[data-tui-datepicker-hidden-input]");
+                        trigger.parentElement?.querySelector("[data-tui-datepicker-hidden-input]");
     const display = trigger.querySelector("[data-tui-datepicker-display]");
     
     return { calendar, hiddenInput, display };
   }
-  
+
+  function findRangeEndInput(trigger) {
+    return document.getElementById(trigger.id + "-range-end-hidden") ||
+           trigger.parentElement?.querySelector("[data-tui-calendar-hidden-end-input]");
+  }
+
   // Update display
   function updateDisplay(trigger) {
     const elements = findElements(trigger);
@@ -91,6 +96,27 @@
     
     const format = trigger.getAttribute("data-tui-datepicker-display-format") || "locale-medium";
     const locale = trigger.getAttribute("data-tui-datepicker-locale-tag") || "en-US";
+
+    if (trigger.getAttribute("data-tui-datepicker-range-mode") === "true") {
+      const startPlaceholder = trigger.getAttribute("data-tui-datepicker-placeholder") || "Select a date";
+      const endPlaceholder = trigger.getAttribute("data-tui-datepicker-end-placeholder") || "End date";
+      const rangeEndInput = findRangeEndInput(trigger);
+      const startDate = parseISODate(elements.hiddenInput.value);
+      const endDate = rangeEndInput ? parseISODate(rangeEndInput.value) : null;
+
+      if (startDate && endDate) {
+        elements.display.textContent = formatDate(startDate, format, locale) + " – " + formatDate(endDate, format, locale);
+        elements.display.classList.remove("text-muted-foreground");
+      } else if (startDate) {
+        elements.display.textContent = formatDate(startDate, format, locale) + " – " + endPlaceholder;
+        elements.display.classList.remove("text-muted-foreground");
+      } else {
+        elements.display.textContent = startPlaceholder + " - " + endPlaceholder;
+        elements.display.classList.add("text-muted-foreground");
+      }
+      return;
+    }
+
     const placeholder = trigger.getAttribute("data-tui-datepicker-placeholder") || "Select a date";
     
     if (elements.hiddenInput.value) {
@@ -115,6 +141,7 @@
     const triggerId = calendar.id.replace("-calendar-instance", "");
     const trigger = document.getElementById(triggerId);
     if (!trigger || !trigger.hasAttribute("data-tui-datepicker")) return;
+    if (trigger.getAttribute("data-tui-datepicker-range-mode") === "true") return;
     
     const elements = findElements(trigger);
     if (!elements.display || !e.detail?.date) return;
@@ -127,6 +154,24 @@
     
     // Close the popover
     if (window.closePopover) {
+      const popoverId = trigger.getAttribute("aria-controls") || (trigger.id + "-content");
+      window.closePopover(popoverId);
+    }
+  });
+
+  // Handle calendar range selection
+  document.addEventListener("calendar-range-selected", (e) => {
+    const calendar = e.target;
+    if (!calendar || !calendar.id.endsWith("-calendar-instance")) return;
+
+    const triggerId = calendar.id.replace("-calendar-instance", "");
+    const trigger = document.getElementById(triggerId);
+    if (!trigger || !trigger.hasAttribute("data-tui-datepicker")) return;
+
+    updateDisplay(trigger);
+
+    // Only close the popover once the range is complete (end date selected)
+    if (e.detail?.endDate && window.closePopover) {
       const popoverId = trigger.getAttribute("aria-controls") || (trigger.id + "-content");
       window.closePopover(popoverId);
     }
@@ -150,6 +195,10 @@
       const elements = findElements(trigger);
       if (elements.hiddenInput) {
         elements.hiddenInput.value = "";
+      }
+      const rangeEndInput = findRangeEndInput(trigger);
+      if (rangeEndInput) {
+        rangeEndInput.value = "";
       }
       updateDisplay(trigger);
     });

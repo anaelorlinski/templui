@@ -36,12 +36,15 @@ type Props struct {
 	ID                string
 	Class             string
 	LocaleTag         LocaleTag
-	Value             *time.Time
-	Name              string
-	InitialMonth      int  // Optional: 0-11 (Default: current or from Value). Controls the initially displayed month view.
-	InitialYear       int  // Optional: (Default: current or from Value). Controls the initially displayed year view.
-	StartOfWeek       *Day // Optional: 0-6 [Sun-Sat] (Default: 1).
-	RenderHiddenInput bool // Optional: Whether to render the hidden input (Default: true). Set to false when used inside DatePicker.
+	Value             *time.Time // Start date (single mode) or range start (range mode).
+	Name              string     // Hidden input name for Value / range start.
+	InitialMonth      int        // Optional: 0-11 (Default: current or from Value). Controls the initially displayed month view.
+	InitialYear       int        // Optional: (Default: current or from Value). Controls the initially displayed year view.
+	StartOfWeek       *Day       // Optional: 0-6 [Sun-Sat] (Default: 1).
+	RenderHiddenInput bool       // Optional: Whether to render the hidden input (Default: true). Set to false when used inside DatePicker.
+	RangeMode     bool       // Activates range selection mode.
+	RangeEnd      *time.Time // End date for range selection (range mode only).
+	RangeEndName  string     // Hidden input name for range end date. Defaults to Name + "-end".
 }
 
 templ Calendar(props ...Props) {
@@ -97,6 +100,18 @@ templ Calendar(props ...Props) {
 			initialSelectedISO = p.Value.Format("2006-01-02")
 		}
 
+		// Range mode
+		rangeMode := p.RangeMode || p.RangeEnd != nil
+		rangeEndISO := ""
+		if rangeMode {
+			if p.RangeEndName == "" {
+				p.RangeEndName = p.Name + "-end"
+			}
+			if p.RangeEnd != nil {
+				rangeEndISO = p.RangeEnd.Format("2006-01-02")
+			}
+		}
+
 		// For SelectBox display
 		currentMonth := initialMonth
 		currentYear := initialYear
@@ -113,6 +128,15 @@ templ Calendar(props ...Props) {
 				id={ p.ID + "-hidden" }
 				data-tui-calendar-hidden-input
 			/>
+			if rangeMode {
+				<input
+					type="hidden"
+					name={ p.RangeEndName }
+					value={ rangeEndISO }
+					id={ p.ID + "-range-end-hidden" }
+				data-tui-calendar-hidden-end-input
+				/>
+			}
 		}
 		<div
 			id={ p.ID }
@@ -122,6 +146,10 @@ templ Calendar(props ...Props) {
 			data-tui-calendar-initial-year={ strconv.Itoa(initialYear) }
 			data-tui-calendar-selected-date={ initialSelectedISO }
 			data-tui-calendar-start-of-week={ int(initialStartOfWeek) }
+			if rangeMode {
+				data-tui-calendar-range-mode="true"
+				data-tui-calendar-range-end={ rangeEndISO }
+			}
 		>
 			<!-- Calendar Header -->
 			<div class="flex items-center gap-2 mb-4">
@@ -188,4 +216,8 @@ templ Calendar(props ...Props) {
 			<div data-tui-calendar-days class="grid grid-cols-7 gap-1 place-items-center"></div>
 		</div>
 	</div>
+}
+
+templ Script() {
+	<script defer nonce={ templ.GetNonce(ctx) } src={ utils.ScriptURL("/assets/aaoowk/js/calendar.min.js") }></script>
 }

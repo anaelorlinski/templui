@@ -77,6 +77,18 @@
     return hiddenInput;
   }
 
+  function findRangeEndInput(container) {
+    const wrapper = container.closest("[data-tui-calendar-wrapper]");
+    let input = wrapper?.querySelector("[data-tui-calendar-hidden-end-input]");
+
+    if (!input && container.id) {
+      const parentId = container.id.replace("-calendar-instance", "");
+      input = document.getElementById(parentId + "-range-end-hidden");
+    }
+
+    return input;
+  }
+
   function renderCalendar(container) {
     const weekdaysContainer = container.querySelector(
       "[data-tui-calendar-weekdays]",
@@ -175,17 +187,31 @@
     }
 
     // Add day buttons
+    const rangeMode = container.hasAttribute("data-tui-calendar-range-mode");
+    const rangeEnd = rangeMode ? parseISODate(container.getAttribute("data-tui-calendar-range-end")) : null;
+    const rangeHover = rangeMode ? parseISODate(container.getAttribute("data-tui-calendar-range-hover")) : null;
+    const effectiveEnd = rangeEnd ?? (selectedDate && !rangeEnd ? rangeHover : null);
+
     for (let day = 1; day <= daysInMonth; day++) {
       const currentDate = new Date(Date.UTC(currentYear, currentMonth, day));
       const isSelected =
         selectedDate && currentDate.getTime() === selectedDate.getTime();
       const isToday = currentDate.getTime() === todayUTC.getTime();
+      const isRangeEnd = rangeMode && rangeEnd && currentDate.getTime() === rangeEnd.getTime();
+      const isInRange =
+        rangeMode &&
+        selectedDate &&
+        effectiveEnd &&
+        currentDate.getTime() > selectedDate.getTime() &&
+        currentDate.getTime() < effectiveEnd.getTime();
 
       let classes =
         "inline-flex h-8 w-8 items-center justify-center rounded-md text-sm font-medium focus:outline-none focus:ring-1 focus:ring-ring";
 
-      if (isSelected) {
+      if (isSelected || isRangeEnd) {
         classes += " bg-primary text-primary-foreground hover:bg-primary/90";
+      } else if (isInRange) {
+        classes += " bg-primary/30 text-primary-foreground";
       } else if (isToday) {
         classes += " bg-accent text-accent-foreground";
       } else {
@@ -195,7 +221,8 @@
       const attrs = [
         `data-tui-calendar-day="${day}"`,
         isToday ? 'data-tui-calendar-today="true"' : '',
-        isSelected ? 'data-tui-calendar-selected="true"' : ''
+        isSelected ? 'data-tui-calendar-selected="true"' : '',
+        isRangeEnd ? 'data-tui-calendar-range-end-day="true"' : '',
       ].filter(Boolean).join(' ');
 
       daysContainer.innerHTML += `<button type="button" class="${classes}" ${attrs}>${day}</button>`;
@@ -277,7 +304,6 @@
         month = 0;
         year++;
       }
-
       container.dataset.tuiCalendarCurrentMonth = month;
       container.dataset.tuiCalendarCurrentYear = year;
       renderCalendar(container);
@@ -298,31 +324,105 @@
       if (isNaN(month)) month = new Date().getMonth();
       if (isNaN(year)) year = new Date().getFullYear();
       const selectedDate = new Date(Date.UTC(year, month, day));
+      const selectedISO = selectedDate.toISOString().split("T")[0];
 
-      // Update selected date attribute
-      container.setAttribute(
-        "data-tui-calendar-selected-date",
-        selectedDate.toISOString().split("T")[0],
-      );
+      if (container.hasAttribute("data-tui-calendar-range-mode")) {
+        // Range selection state machine:
+        //   1. No start set OR both set → set as new start, clear end
+        //   2. Start set, no end → set as end (swap if before start)
+        const currentStartStr = container.getAttribute("data-tui-calendar-selected-date");
+        const currentStart = currentStartStr ? parseISODate(currentStartStr) : null;
+        const rangeEnd = parseISODate(container.getAttribute("data-tui-calendar-range-end"));
+        const hiddenStart = findHiddenInput(container);
+        const hiddenEnd = findRangeEndInput(container);
 
-      // Update hidden input
-      const hiddenInput = findHiddenInput(container);
-      if (hiddenInput) {
-        hiddenInput.value = selectedDate.toISOString().split("T")[0];
-        hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
+        if (!currentStart || rangeEnd) {
+          container.setAttribute("data-tui-calendar-selected-date", selectedISO);
+          container.removeAttribute("data-tui-calendar-range-end");
+          container.removeAttribute("data-tui-calendar-range-hover");
+          if (hiddenStart) { hiddenStart.value = selectedISO; hiddenStart.dispatchEvent(new Event("change", { bubbles: true })); }
+          if (hiddenEnd) { hiddenEnd.value = ""; hiddenEnd.dispatchEvent(new Event("change", { bubbles: true })); }
+        } else {
+          let newStartISO, newEndISO;
+          if (selectedDate.getTime() >= currentStart.getTime()) {
+            newStartISO = currentStartStr;
+            newEndISO = selectedISO;
+          } else {
+            newStartISO = selectedISO;
+            newEndISO = currentStartStr;
+          }
+          container.setAttribute("data-tui-calendar-selected-date", newStartISO);
+          container.setAttribute("data-tui-calendar-range-end", newEndISO);
+          container.removeAttribute("data-tui-calendar-range-hover");
+          if (hiddenStart) { hiddenStart.value = newStartISO; hiddenStart.dispatchEvent(new Event("change", { bubbles: true })); }
+          if (hiddenEnd) { hiddenEnd.value = newEndISO; hiddenEnd.dispatchEvent(new Event("change", { bubbles: true })); }
+        }
+
+        container.dispatchEvent(
+          new CustomEvent("calendar-range-selected", {
+            bubbles: true,
+            detail: {
+              startDate: parseISODate(container.getAttribute("data-tui-calendar-selected-date")),
+              endDate: parseISODate(container.getAttribute("data-tui-calendar-range-end")),
+            },
+          }),
+        );
+      } else {
+        // Update selected date attribute
+        container.setAttribute(
+          "data-tui-calendar-selected-date",
+          selectedISO,
+        );
+
+        // Update hidden input
+        const hiddenInput = findHiddenInput(container);
+        if (hiddenInput) {
+          hiddenInput.value = selectedISO;
+          hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+
+        // Dispatch custom event
+        container.dispatchEvent(
+          new CustomEvent("calendar-date-selected", {
+            bubbles: true,
+            detail: { date: selectedDate },
+          }),
+        );
       }
-
-      // Dispatch custom event
-      container.dispatchEvent(
-        new CustomEvent("calendar-date-selected", {
-          bubbles: true,
-          detail: { date: selectedDate },
-        }),
-      );
 
       renderCalendar(container);
     }
   });
+
+  // Hover preview for range selection
+  document.addEventListener("mouseover", (e) => {
+    if (!e.target.matches("[data-tui-calendar-day]")) return;
+    const container = e.target.closest("[data-tui-calendar-container]");
+    if (!container || !container.hasAttribute("data-tui-calendar-range-mode")) return;
+
+    const rangeStart = parseISODate(container.getAttribute("data-tui-calendar-selected-date"));
+    const rangeEnd = parseISODate(container.getAttribute("data-tui-calendar-range-end"));
+    if (!rangeStart || rangeEnd) return;
+
+    const day = parseInt(e.target.dataset.tuiCalendarDay);
+    const month = parseInt(container.dataset.tuiCalendarCurrentMonth, 10);
+    const year = parseInt(container.dataset.tuiCalendarCurrentYear, 10);
+    const hoverISO = new Date(Date.UTC(year, month, day)).toISOString().split("T")[0];
+
+    if (container.getAttribute("data-tui-calendar-range-hover") !== hoverISO) {
+      container.setAttribute("data-tui-calendar-range-hover", hoverISO);
+      renderCalendar(container);
+    }
+  });
+
+  document.addEventListener("mouseleave", (e) => {
+    const container = e.target.closest?.("[data-tui-calendar-container]");
+    if (!container || !container.hasAttribute("data-tui-calendar-range-mode")) return;
+    if (container.hasAttribute("data-tui-calendar-range-hover")) {
+      container.removeAttribute("data-tui-calendar-range-hover");
+      renderCalendar(container);
+    }
+  }, true);
 
   // Update native selects when month/year changes via arrows
   function updateNativeSelects(container) {
@@ -360,8 +460,15 @@
           hiddenInput.value = "";
         }
 
+        const rangeEndInput = findRangeEndInput(container);
+        if (rangeEndInput) {
+          rangeEndInput.value = "";
+        }
+
         // Clear selected date and reset to current month
         container.removeAttribute("data-tui-calendar-selected-date");
+        container.removeAttribute("data-tui-calendar-range-end");
+        container.removeAttribute("data-tui-calendar-range-hover");
         const today = new Date();
         container.dataset.tuiCalendarCurrentMonth = today.getMonth();
         container.dataset.tuiCalendarCurrentYear = today.getFullYear();

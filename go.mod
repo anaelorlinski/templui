@@ -1,4 +1,4 @@
-module github.com/templui/templui
+module github.com/anaelorlinski/templui
 
 go 1.24
 

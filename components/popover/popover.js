@@ -127,7 +127,7 @@ import "./floating_ui_core.js";
       middleware.push(arrow({ element: arrowEl, padding: 5 }));
     }
 
-    computePosition(reference, content, { placement, middleware }).then(
+    computePosition(reference, content, { placement, middleware, strategy: "fixed" }).then(
       ({ x, y, placement: finalPlacement, middlewareData }) => {
         Object.assign(content.style, {
           left: `${x}px`,
